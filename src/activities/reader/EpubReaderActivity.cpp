@@ -112,6 +112,9 @@ constexpr unsigned long RENDER_MODE_TOAST_MS = 1500UL;
 constexpr unsigned long MIN_MANUAL_PAGE_TURN_GAP_MS = 200UL;
 // Shared dwell time for the transient bookmark/completed/tilt confirmations.
 constexpr unsigned long TRANSIENT_FEEDBACK_MS = 1000UL;
+// Rendering holds the lock for a page refresh at most; longer means Read Aloud
+// is stuck behind it.
+constexpr unsigned long READ_ALOUD_LOCK_REPORT_MS = 5000UL;
 constexpr unsigned long IDLE_SD_FONT_PREWARM_DELAY_MS = 400UL;
 constexpr uint32_t IDLE_SD_FONT_PREWARM_MIN_FREE = 64U * 1024U;
 constexpr uint32_t IDLE_SD_FONT_PREWARM_MIN_MAX_ALLOC = 40U * 1024U;
@@ -5852,6 +5855,7 @@ void EpubReaderActivity::serviceReadAloud() {
     readAloudBookSent = false;
     readAloudSentSpine = -1;
     readAloudSentPage = -1;
+    readAloudProblem = nullptr;
   }
 
   ReadAloudService::Command command;
@@ -5887,13 +5891,47 @@ void EpubReaderActivity::serviceReadAloud() {
 
   // Never wait for the render task: the page goes out on a later pass.
   RenderLock lock(*this, RenderLock::Mode::Try);
-  if (!lock.ownsLock()) return;
-  if (!section || section->pageCount == 0 || section->currentPage >= section->pageCount) return;
+  if (!lock.ownsLock()) {
+    if (readAloudLockMissSince == 0) readAloudLockMissSince = millis();
+    if (millis() - readAloudLockMissSince > READ_ALOUD_LOCK_REPORT_MS) reportReadAloudProblem("render lock busy");
+    return;
+  }
+  readAloudLockMissSince = 0;
+  if (!section) {
+    reportReadAloudProblem("no section");
+    return;
+  }
+  if (section->pageCount == 0) {
+    reportReadAloudProblem("no pages yet");
+    return;
+  }
+  if (section->currentPage >= section->pageCount) {
+    reportReadAloudProblem("page past count");
+    return;
+  }
   if (currentSpineIndex == readAloudSentSpine && section->currentPage == readAloudSentPage) return;
   if (sendReadAloudPage()) {
     readAloudSentSpine = currentSpineIndex;
     readAloudSentPage = section->currentPage;
+    readAloudProblem = nullptr;
+  } else {
+    reportReadAloudProblem("load failed");
   }
+}
+
+void EpubReaderActivity::reportReadAloudProblem(const char* problem) {
+  if (problem == readAloudProblem) return;
+  readAloudProblem = problem;
+  LOG_ERR("ERS", "Read Aloud: no page sent: %s", problem);
+  char state[48];
+  snprintf(state, sizeof(state), " s%d p%d/%d", currentSpineIndex, section ? section->currentPage : -1,
+           section ? static_cast<int>(section->pageCount) : -1);
+  std::string message;
+  message += ReadAloudService::MSG_PROBLEM;
+  message += ReadAloudService::FIELD_SEPARATOR;
+  message += problem;
+  message += state;
+  READ_ALOUD.send(std::move(message));
 }
 
 // Caller holds the RenderLock.

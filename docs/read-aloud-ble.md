@@ -56,6 +56,7 @@ separator `0x1F`. Text fields never contain `0x1F`.
 | `B` | title, author | The open book. Sent after `H` and whenever another book is opened. |
 | `P` | key, next key, chapter title, percent, text, next text | The page now on screen. See below. |
 | `X` | (none) | No book is open (the reader was closed). Stop speaking. |
+| `E` | problem | Diagnostic: why no `P` is going out (e.g. `load failed s3 p0/12`). Sent once per change; for the phone's logs only. |
 
 `P` is sent after `H`/`B`, every time the displayed page changes (for any
 reason: a phone `N`/`V`, a button press, a chapter jump, a relayout), and in

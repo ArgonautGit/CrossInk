@@ -458,8 +458,12 @@ class EpubReaderActivity final : public Activity {
   int readAloudSentPage = -1;
   bool readAloudBookSent = false;
   bool readAloudStartAttempted = false;
+  // The last problem reported to the phone, so each is sent once.
+  const char* readAloudProblem = nullptr;
+  unsigned long readAloudLockMissSince = 0;
   void serviceReadAloud();
   bool sendReadAloudPage();
+  void reportReadAloudProblem(const char* problem);
   void requestManualPageTurn(bool isForwardTurn, const char* source);
   bool drainPendingManualPageTurn();
   void clearPendingManualPageTurns(bool requestRecoveryRedraw = true);

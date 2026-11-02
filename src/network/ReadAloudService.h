@@ -24,6 +24,7 @@ class ReadAloudService {
   static constexpr char MSG_BOOK = 'B';
   static constexpr char MSG_PAGE = 'P';
   static constexpr char MSG_NO_BOOK = 'X';
+  static constexpr char MSG_PROBLEM = 'E';
   static constexpr char FIELD_SEPARATOR = '\x1f';
 
   static ReadAloudService& getInstance();
