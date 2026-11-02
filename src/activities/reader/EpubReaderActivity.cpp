@@ -54,6 +54,7 @@
 #include "ProgressMapper.h"
 #include "QrDisplayActivity.h"
 #include "QuickActions.h"
+#include "ReadAloudPageText.h"
 #include "ReaderFontLoading.h"
 #include "ReaderUtils.h"
 #include "ReadingSessionStats.h"
@@ -71,6 +72,7 @@
 #include "clippings/ClippingTextMatcher.h"
 #include "clippings/ClippingsManager.h"
 #include "components/UITheme.h"
+#include "network/ReadAloudService.h"
 #if CROSSINK_APP_CAP_TOUCH
 #include "components/TouchHeaderBackButton.h"
 #endif
@@ -2466,11 +2468,18 @@ void EpubReaderActivity::onEnter() {
                                  coverState);
   }
 
+  readAloudSentSpine = -1;
+  readAloudSentPage = -1;
+  readAloudBookSent = false;
+  readAloudStartAttempted = false;
+
   // Trigger first update
   requestUpdate();
 }
 
 void EpubReaderActivity::onExit() {
+  // The BLE link outlives the reader so the phone stays paired across books.
+  READ_ALOUD.send(std::string(1, ReadAloudService::MSG_NO_BOOK));
   sdFontSystem.setSettingsPersistenceCallback(nullptr, nullptr);
   // Drop the scalable-family catalog retained during reading. The active font
   // and its PSRAM face lifetime remain managed by SdCardFontSystem.
@@ -2797,6 +2806,7 @@ bool EpubReaderActivity::transientFeedbackDismissed(const unsigned long showTime
 
 void EpubReaderActivity::loop() {
   syncStatsTrackingState();
+  serviceReadAloud();
   if (pendingTtfRenderRelayout && epub) {
     relayoutAfterTtfRenderChange();
     requestUpdate();
@@ -5820,6 +5830,124 @@ void EpubReaderActivity::setAutoPageTurnIntervalSeconds(uint16_t seconds) {
     prepareCurrentSectionForRelayout();
     section.reset();
   }
+}
+
+bool EpubReaderActivity::preventAutoSleep() { return automaticPageTurnActive || READ_ALOUD.isSpeaking(); }
+
+void EpubReaderActivity::serviceReadAloud() {
+  if (!READ_ALOUD.isActive()) {
+    // Started here rather than in onEnter() so switching the setting on from
+    // the reader menu takes effect without reopening the book. One attempt per
+    // book: a failed NimBLE init is not retried every loop.
+    if (!SETTINGS.readAloudEnabled) {
+      readAloudStartAttempted = false;
+      return;
+    }
+    if (readAloudStartAttempted) return;
+    readAloudStartAttempted = true;
+    if (!READ_ALOUD.begin()) return;
+  }
+
+  if (READ_ALOUD.consumeSessionStart()) {
+    readAloudBookSent = false;
+    readAloudSentSpine = -1;
+    readAloudSentPage = -1;
+  }
+
+  ReadAloudService::Command command;
+  while (READ_ALOUD.takeCommand(command)) {
+    switch (command) {
+      case ReadAloudService::Command::NextPage:
+        requestManualPageTurn(true, "read_aloud");
+        break;
+      case ReadAloudService::Command::PreviousPage:
+        requestManualPageTurn(false, "read_aloud");
+        break;
+      case ReadAloudService::Command::Resend:
+        readAloudSentSpine = -1;
+        readAloudSentPage = -1;
+        break;
+      case ReadAloudService::Command::None:
+        break;
+    }
+  }
+
+  if (!READ_ALOUD.isConnected() || !epub) return;
+
+  if (!readAloudBookSent) {
+    std::string book;
+    book += ReadAloudService::MSG_BOOK;
+    book += ReadAloudService::FIELD_SEPARATOR;
+    book += epub->getTitle();
+    book += ReadAloudService::FIELD_SEPARATOR;
+    book += epub->getAuthor();
+    READ_ALOUD.send(std::move(book));
+    readAloudBookSent = true;
+  }
+
+  // Never wait for the render task: the page goes out on a later pass.
+  RenderLock lock(*this, RenderLock::Mode::Try);
+  if (!lock.ownsLock()) return;
+  if (!section || section->pageCount == 0 || section->currentPage >= section->pageCount) return;
+  if (currentSpineIndex == readAloudSentSpine && section->currentPage == readAloudSentPage) return;
+  if (sendReadAloudPage()) {
+    readAloudSentSpine = currentSpineIndex;
+    readAloudSentPage = section->currentPage;
+  }
+}
+
+// Caller holds the RenderLock.
+bool EpubReaderActivity::sendReadAloudPage() {
+  // Pages are re-read from the section cache rather than shared with the
+  // render task, which owns the displayed page. Both are freed on return.
+  const auto page = reloadDictionaryLookupPage(0);
+  if (!page) {
+    LOG_ERR("ERS", "Read Aloud: failed to load page %d of spine %d", section->currentPage, currentSpineIndex);
+    return false;
+  }
+  // The next page's text lets the phone read across the page boundary without
+  // a pause. At a chapter end the next chapter may not be laid out yet, so the
+  // phone waits for the turn instead.
+  std::string nextText;
+  bool hasNext = false;
+  if (section->currentPage + 1 < static_cast<int>(section->pageCount)) {
+    if (const auto next = reloadDictionaryLookupPage(1)) {
+      ReadAloudPageText::append(*next, nextText);
+      hasNext = true;
+    }
+  }
+
+  char keys[32];
+  if (hasNext) {
+    snprintf(keys, sizeof(keys), "%d.%d%c%d.%d", currentSpineIndex, section->currentPage,
+             ReadAloudService::FIELD_SEPARATOR, currentSpineIndex, section->currentPage + 1);
+  } else {
+    snprintf(keys, sizeof(keys), "%d.%d%c", currentSpineIndex, section->currentPage, ReadAloudService::FIELD_SEPARATOR);
+  }
+  std::string chapterTitle;
+  const int tocIndex = epub->getTocIndexForSpineIndex(currentSpineIndex);
+  if (tocIndex >= 0) chapterTitle = epub->getTocItem(tocIndex).title;
+  for (char& c : chapterTitle) {
+    if (static_cast<unsigned char>(c) < 0x20) c = ' ';
+  }
+  const int percent = std::clamp(static_cast<int>(getCurrentBookProgressPercent() + 0.5f), 0, 100);
+
+  std::string message;
+  message.reserve(2048 + nextText.size());
+  message += ReadAloudService::MSG_PAGE;
+  message += ReadAloudService::FIELD_SEPARATOR;
+  message += keys;
+  message += ReadAloudService::FIELD_SEPARATOR;
+  message += chapterTitle;
+  message += ReadAloudService::FIELD_SEPARATOR;
+  message += std::to_string(percent);
+  message += ReadAloudService::FIELD_SEPARATOR;
+  ReadAloudPageText::append(*page, message);
+  message += ReadAloudService::FIELD_SEPARATOR;
+  message += nextText;
+  LOG_DBG("ERS", "Read Aloud: page %s (%u bytes)", keys, static_cast<unsigned>(message.size()));
+  READ_ALOUD.send(std::move(message));
+  return true;
 }
 
 void EpubReaderActivity::requestManualPageTurn(const bool isForwardTurn, const char* source) {

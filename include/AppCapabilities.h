@@ -41,3 +41,10 @@
 
 // Every button-only reader uses the full-screen menu and its bounded sample preview.
 #define CROSSINK_APP_READER_SAMPLE_PREVIEW (!CROSSINK_APP_CAP_TOUCH)
+
+// Read Aloud serves the open page's text over a BLE GATT service for a phone
+// to speak. It needs NimBLE-Arduino in the environment's lib_deps; boards
+// without it build the stub service.
+#ifndef CROSSINK_APP_CAP_READ_ALOUD
+#define CROSSINK_APP_CAP_READ_ALOUD 0
+#endif

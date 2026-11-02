@@ -453,6 +453,13 @@ class EpubReaderActivity final : public Activity {
   // Opens the reader menu for the current position (short-press Confirm)
   void openReaderMenu();
   void applyOrientation(uint8_t orientation);
+  // Read Aloud (docs/read-aloud-ble.md): the page last sent to the phone.
+  int readAloudSentSpine = -1;
+  int readAloudSentPage = -1;
+  bool readAloudBookSent = false;
+  bool readAloudStartAttempted = false;
+  void serviceReadAloud();
+  bool sendReadAloudPage();
   void requestManualPageTurn(bool isForwardTurn, const char* source);
   bool drainPendingManualPageTurn();
   void clearPendingManualPageTurns(bool requestRecoveryRedraw = true);
@@ -502,7 +509,7 @@ class EpubReaderActivity final : public Activity {
     cleanImageBasePending = true;
     return true;
   }
-  bool preventAutoSleep() override { return automaticPageTurnActive; }
+  bool preventAutoSleep() override;
   // Hold the loop hot only while the build has work this loop would do: a kept-alive
   // build sitting outside the lookahead window is dormant, and reporting it here would
   // pin the CPU at full clock (no power saving, yield-only loop) for the whole read.

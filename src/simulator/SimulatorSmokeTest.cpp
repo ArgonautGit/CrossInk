@@ -1478,6 +1478,9 @@ class SimulatorSmokeTest {
         }
 #endif
         applyRequestedTheme();
+        if (std::getenv("CROSSINK_SIMULATOR_SMOKE_READ_ALOUD")) {
+          SETTINGS.readAloudEnabled = 1;
+        }
         homeReaderReaderKind = 0;
         homeReaderCancelledMask = 0;
         homeReaderConfirmationAccepted = false;

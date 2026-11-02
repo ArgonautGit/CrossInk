@@ -1,3 +1,9 @@
+## [Unreleased]
+
+### Added
+
+- X4 Pro: Read Aloud over Bluetooth. With Settings > Reader > Read Aloud (Bluetooth) on, the open EPUB page is served over Bluetooth LE to a phone app that speaks it and turns the pages as it reads. See `docs/read-aloud-ble.md`.
+
 ## [v1.6.1] - 2026-10-03
 
 ### Added

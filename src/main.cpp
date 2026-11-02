@@ -27,6 +27,7 @@
 #include <uzlib.h>
 
 #include "AppCapabilities.h"
+#include "network/ReadAloudService.h"
 
 #ifdef SIMULATOR
 using esp_reset_reason_t = int;
@@ -1631,6 +1632,12 @@ void loop() {
 #ifdef SIMULATOR
   simulatorHomeKeyInput.update();
 #endif
+  // Read Aloud starts with the reader; switching the setting off releases the radio.
+  if (READ_ALOUD.isActive() && !SETTINGS.readAloudEnabled) {
+    READ_ALOUD.end();
+  }
+  READ_ALOUD.pump();
+
   if (activityManager.requiresExclusiveStorageLoop()) {
     // Keep the serial endpoint responsive so Inky receives ERR:not_on_home,
     // while every filesystem/UI/global path remains suspended by the activity.

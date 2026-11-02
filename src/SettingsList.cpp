@@ -1,5 +1,7 @@
 #include "SettingsList.h"
 
+#include <AppCapabilities.h>
+
 const std::vector<SettingInfo>& getBaseSettingsList() {
   static const std::vector<SettingInfo> baseList = [] {
     std::vector<SettingInfo> v;
@@ -129,6 +131,10 @@ const std::vector<SettingInfo>& getBaseSettingsList() {
     add(SettingInfo::Enum(StrId::STR_INDEXING_METHOD, &CrossPointSettings::indexingMethod,
                           {StrId::STR_INDEXING_INCREMENTAL, StrId::STR_INDEXING_FULL_SECTION}, "indexingMethod",
                           StrId::STR_CAT_READER));
+#if CROSSINK_APP_CAP_READ_ALOUD
+    add(SettingInfo::Toggle(StrId::STR_READ_ALOUD_BLE, &CrossPointSettings::readAloudEnabled, "readAloudEnabled",
+                            StrId::STR_CAT_READER));
+#endif
 
     // --- Controls ---
     add(SettingInfo::Toggle(StrId::STR_PINCH_FONT_RESIZE, &CrossPointSettings::pinchFontResizeEnabled,
