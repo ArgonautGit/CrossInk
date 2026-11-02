@@ -29,6 +29,9 @@ constexpr uint8_t CHUNK_LAST = 0x02;
 constexpr uint16_t ATT_HEADER_BYTES = 3;
 constexpr uint16_t DEFAULT_ATT_MTU = 23;
 constexpr uint16_t REQUESTED_ATT_MTU = 517;
+// The longest attribute value ATT allows. Android drops longer notifications
+// without a word, even when the MTU would carry them.
+constexpr size_t MAX_ATTRIBUTE_VALUE_BYTES = 512;
 // One page plus its successor is a few KB; a queue this deep only fills when
 // the phone stops reading notifications, and then old pages are worthless.
 constexpr size_t MAX_OUTBOX_MESSAGES = 6;
@@ -296,10 +299,11 @@ void ReadAloudService::pump() {
   if (!subscribed.load() || handle == BLE_HS_CONN_HANDLE_NONE || !txCharacteristic) return;
 
   const uint16_t mtu = attMtu.load();
-  const size_t maxPayload = (mtu > ATT_HEADER_BYTES + 1 ? mtu - ATT_HEADER_BYTES - 1 : 19);
-  // Sized for the largest MTU NimBLE negotiates; static so the main-loop stack
-  // stays small.
-  static uint8_t chunk[REQUESTED_ATT_MTU];
+  const size_t maxValue =
+      std::min<size_t>(mtu > ATT_HEADER_BYTES + 1 ? mtu - ATT_HEADER_BYTES : 20, MAX_ATTRIBUTE_VALUE_BYTES);
+  const size_t maxPayload = maxValue - 1;
+  // Static so the main-loop stack stays small.
+  static uint8_t chunk[MAX_ATTRIBUTE_VALUE_BYTES];
 
   for (size_t sentChunks = 0; sentChunks < MAX_CHUNKS_PER_PUMP && !outbox.empty(); ++sentChunks) {
     const std::string& message = outbox.front();

@@ -35,7 +35,7 @@ or one write (`RX`):
 
 ```
 byte 0     flags: bit 0 FIRST (first chunk of a message), bit 1 LAST
-byte 1..   payload, at most (ATT MTU - 3 - 1) bytes
+byte 1..   payload, at most min(ATT MTU - 3, 512) - 1 bytes
 ```
 
 A message that fits in one chunk has flags `0x03`. The receiver appends
